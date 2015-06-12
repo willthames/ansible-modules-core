@@ -172,7 +172,7 @@ def main():
     args  = module.params['_raw_params']
     creates  = module.params['creates']
     removes  = module.params['removes']
-    warn = module.params['warn']
+    warn = module.boolean(module.params['warn'])
 
     if args.strip() == '':
         module.fail_json(rc=256, msg="no command given")

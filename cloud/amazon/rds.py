@@ -28,7 +28,7 @@ options:
     required: true
     default: null
     aliases: []
-    choices: [ 'create', 'replicate', 'delete', 'facts', 'modify' , 'promote', 'snapshot', 'restore' ]
+    choices: [ 'create', 'replicate', 'delete', 'facts', 'modify' , 'promote', 'snapshot', 'restore', 'reboot' ]
   instance_name:
     description:
       - Database instance identifier. Required except when using command=facts or command=delete on just a snapshot
@@ -292,6 +292,12 @@ EXAMPLES = '''
     instance_name: new-database
     new_instance_name: renamed-database
     wait: yes
+
+# Reboot an instance and wait for the time it takes
+- rds:
+    command: reboot
+    instance_name: new_database
+    wait: yes
 '''
 
 import sys
@@ -401,6 +407,13 @@ class RDSConnection:
         except boto.exception.BotoServerError, e:
             raise RDSException(e)
 
+    def reboot_db_instance(self, instance_name):
+        try:
+            result = self.connection.reboot_dbinstance(instance_name)
+            return RDSDBInstance(result)
+        except boto.exception.BotoServerError, e:
+            raise RDSException(e)
+
 
 class RDS2Connection:
     def __init__(self, module, region, **aws_connect_params):
@@ -481,6 +494,13 @@ class RDS2Connection:
     def promote_read_replica(self, instance_name, **params):
         try:
             result = self.connection.promote_read_replica(instance_name, **params)['PromoteReadReplicaResponse']['PromoteReadReplicaResult']['DBInstance']
+            return RDS2DBInstance(result)
+        except boto.exception.BotoServerError, e:
+            raise RDSException(e)
+
+    def reboot_db_instance(self, instance_name):
+        try:
+            result = self.connection.reboot_db_instance(instance_name)['RebootDBInstanceResponse']['RebootDBInstanceResult']['DBInstance']
             return RDS2DBInstance(result)
         except boto.exception.BotoServerError, e:
             raise RDSException(e)
@@ -875,6 +895,19 @@ def restore_db_instance(module, conn):
     module.exit_json(changed=changed, instance=resource.get_data())
 
 
+def reboot_db_instance(module, conn):
+    required_vars = ['instance_name']
+    valid_vars = ['wait', 'wait_timeout']
+    validate_parameters(required_vars, valid_vars, module)
+    instance_name = module.params.get('instance_name')
+    resource = conn.get_db_instance(instance_name)
+
+    result = conn.reboot_db_instance(instance_name)
+    if module.params.get('wait'):
+        resource = await_resource(conn, result, 'available', module)
+    module.exit_json(changed=True, instance=resource.get_data())
+
+
 def validate_parameters(required_vars, valid_vars, module):
     command = module.params.get('command')
     for v in required_vars:
@@ -957,7 +990,7 @@ def validate_parameters(required_vars, valid_vars, module):
 def main():
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
-            command           = dict(choices=['create', 'replicate', 'delete', 'facts', 'modify', 'promote', 'snapshot', 'restore'], required=True),
+            command           = dict(choices=['create', 'replicate', 'delete', 'facts', 'modify', 'promote', 'snapshot', 'restore', 'reboot'], required=True),
             instance_name     = dict(required=False),
             source_instance   = dict(required=False),
             db_engine         = dict(choices=['MySQL', 'oracle-se1', 'oracle-se', 'oracle-ee', 'sqlserver-ee', 'sqlserver-se', 'sqlserver-ex', 'sqlserver-web', 'postgres'], required=False),
@@ -1008,6 +1041,7 @@ def main():
             'promote': promote_db_instance,
             'snapshot': snapshot_db_instance,
             'restore': restore_db_instance,
+            'reboot': reboot_db_instance,
     }
 
     region, ec2_url, aws_connect_params = get_aws_connection_info(module)

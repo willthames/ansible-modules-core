@@ -589,14 +589,8 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
                     data = rsp.read(BUFSIZE)
                 f.close()
             except Exception, e:
-                shutil.rmtree(tempdir)
+                delete_temporary_directory(tempdir)
                 module.fail_json(msg="Failure downloading %s, %s" % (spec, e))
-
-            pkg_name = local_name(module, package)
-            if is_installed(module, repoq, pkg_name, conf_file, en_repos=en_repos, dis_repos=dis_repos):
-                # if it's there, skip it
-                continue
-            pkg = package
 
         #groups :(
         elif spec.startswith('@'):
@@ -662,11 +656,7 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
 
         if module.check_mode:
             # Remove rpms downloaded for EL5 via url
-            try:
-                shutil.rmtree(tempdir)
-            except Exception, e:
-                module.fail_json(msg="Failure deleting temp directory %s, %s" % (tempdir, e))
-
+            delete_temporary_directory(tempdir)
             module.exit_json(changed=True, results=res['results'], changes=dict(installed=pkgs))
 
         changed = True
@@ -702,10 +692,7 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
         res['changed'] = changed
 
     # Remove rpms downloaded for EL5 via url
-    try:
-        shutil.rmtree(tempdir)
-    except Exception, e:
-        module.fail_json(msg="Failure deleting temp directory %s, %s" % (tempdir, e))
+    delete_temporary_directory(tempdir)
 
     return res
 
@@ -979,6 +966,13 @@ def ensure(module, state, pkgs, conf_file, enablerepo, disablerepo,
                 " failed", changed=False, results='', errors='unepected state')
 
     return res
+
+
+def delete_temporary_directory(tempdir):
+    try:
+        shutil.rmtree(tempdir)
+    except Exception, e:
+        module.fail_json(msg="Failure deleting temp directory %s, %s" % (tempdir, e))
 
 
 def main():

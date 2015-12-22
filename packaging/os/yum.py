@@ -125,6 +125,13 @@ options:
     choices: ["yes", "no"]
     version_added: "2.1"
 
+  version:
+    description:
+      - Specify the version of the package to be installed
+    required: false
+    default: null
+    version_added: 2.1
+
 notes:
   - When used with a loop of package names in a playbook, ansible optimizes
     the call to the yum module.  Instead of calling the module with a single
@@ -166,6 +173,9 @@ EXAMPLES = '''
 
 - name: install one specific version of Apache
   yum: name=httpd-2.2.29-1.4.amzn1 state=present
+
+- name: install one specific version of Apache (alternative)
+  yum: name=httpd version="2.2.29-1.4.amzn1" state=present
 
 - name: upgrade all packages
   yum: name=* state=latest
@@ -1032,6 +1042,7 @@ def main():
             validate_certs=dict(required=False, default="yes", type='bool'),
             # this should not be needed, but exists as a failsafe
             install_repoquery=dict(required=False, default="yes", type='bool'),
+            version=dict(required=False, default=None),
         ),
         required_one_of = [['name','list']],
         mutually_exclusive = [['name','list']],
@@ -1067,6 +1078,12 @@ def main():
                     repoquery = [repoquerybin, '--show-duplicates', '--plugins', '--quiet']
 
         pkg = [ p.strip() for p in params['name']]
+        version = params['version']
+        if version:
+            if len(pkg) > 1:
+                module.fail_json(msg="version can only be used with a single package")
+            else:
+                pkg[0] = "%s-%s" % (pkg[0], version)
         exclude = params['exclude']
         state = params['state']
         enablerepo = params.get('enablerepo', '')

@@ -46,6 +46,12 @@ options:
       - You should only use this field if the automatic selection is not working for some reason.
     required: false
     default: auto
+  version:
+    description:
+      - Specify the version of the package to be installed
+    required: false
+    default: null
+    version_added: 2.1
 requirements:
     - Whatever is required for the package plugins specific for each system.
 notes:
@@ -58,4 +64,8 @@ EXAMPLES = '''
 # This uses a variable as this changes per distribution.
 - name: remove the apache package
   package: name={{apache}} state=absent
+
+# Allows an optional `version` to be specified
+- name: install apache
+  package: name={{apache}} version={{version}} state=present
 '''

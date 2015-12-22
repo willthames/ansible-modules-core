@@ -116,6 +116,12 @@ options:
     required: false
     default: false
     version_added: "2.1"
+  version:
+    description:
+      - Specify the version of the package to be installed
+    required: false
+    default: null
+    version_added: "2.1"
 
 requirements: [ python-apt, aptitude ]
 author: "Matthew Williams (@mgwilliams)"
@@ -136,6 +142,9 @@ EXAMPLES = '''
 
 # Install the version '1.00' of package "foo"
 - apt: name=foo=1.00 state=present
+
+# Install the version '1.00' of package "foo" (alternative)
+- apt: name=foo version=1.00 state=present
 
 # Update the repository cache and update package "nginx" to latest version using default release squeeze-backport
 - apt: name=nginx state=latest default_release=squeeze-backports update_cache=yes
@@ -689,6 +698,7 @@ def main():
             autoremove = dict(type='bool', default=False, aliases=['autoclean']),
             only_upgrade = dict(type='bool', default=False),
             allow_unauthenticated = dict(default='no', aliases=['allow-unauthenticated'], type='bool'),
+            version=dict(default=None),
         ),
         mutually_exclusive = [['package', 'upgrade', 'deb']],
         required_one_of = [['package', 'upgrade', 'update_cache', 'deb']],
@@ -804,12 +814,20 @@ def main():
                         force=force_yes, dpkg_options=p['dpkg_options'])
 
         packages = p['package']
+        version = p['version']
         latest = p['state'] == 'latest'
         for package in packages:
             if package.count('=') > 1:
                 module.fail_json(msg="invalid package spec: %s" % package)
             if latest and '=' in package:
                 module.fail_json(msg='version number inconsistent with state=latest: %s' % package)
+
+        if version:
+            if len(packages) > 1:
+                module.fail_json(msg="version can only be used with a single package")
+            if '=' in packages[0]:
+                module.fail_json(msg="version cannot be used with package specifier %s" % package)
+            packages[0] = "%s=%s" % (packages[0], version)
 
         if p['state'] in ('latest', 'present', 'build-dep'):
             state_upgrade = False

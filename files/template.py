@@ -58,6 +58,11 @@ options:
     required: false
     choices: [ "yes", "no" ]
     default: "yes"
+  extra_vars:
+    description:
+      - additional variables to include in the templating. This is useful for variables
+        that might be applied to the same template several times in the same play.
+    required: false
 notes:
   - "Since Ansible version 0.9, templates are loaded with C(trim_blocks=True)."
 author:
@@ -77,4 +82,11 @@ EXAMPLES = '''
 
 # Copy a new "sudoers" file into place, after passing validation with visudo
 - template: src=/mine/sudoers dest=/etc/sudoers validate='visudo -cf %s'
+
+# Set a temporary outage notice at the start of the play
+- template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+    extra_vars:
+      banner: "This service will be read-only until 00:05 UTC"
 '''

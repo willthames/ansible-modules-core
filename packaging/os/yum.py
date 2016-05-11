@@ -32,6 +32,7 @@ from distutils.version import LooseVersion
 try:
     from yum.misc import find_unfinished_transactions, find_ts_remaining
     from rpmUtils.miscutils import splitFilename
+    from rpmUtils.miscutils import compareEVR
     transaction_helpers = True
 except:
     transaction_helpers = False
@@ -557,6 +558,7 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
     res['rc'] = 0
     res['changed'] = False
     tempdir = tempfile.mkdtemp()
+    downgrade = False
 
     for spec in items:
         pkg = None
@@ -607,7 +609,7 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
                 if installed_pkgs:
                     res['results'].append('%s providing %s is already installed' % (installed_pkgs[0], spec))
                     continue
-            
+
             # look up what pkgs provide this
             pkglist = what_provides(module, repoq, spec, conf_file, en_repos=en_repos, dis_repos=dis_repos)
             if not pkglist:
@@ -640,9 +642,29 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
                 if is_installed(module, repoq, spec, conf_file, en_repos=en_repos, dis_repos=dis_repos):
                     found = True
                     res['results'].append('package providing %s is already installed' % (spec))
-                    
+
             if found:
                 continue
+
+            if transaction_helpers:
+                # downgrade - the yum install command will only install or upgrade
+                # to a spec version, it will not install an older version of an RPM
+                # even if specified by the install spec. So we need to determine if
+                # this is a downgrade, and then use the yum downgrade command to
+                # install the RPM.
+                split_pkg_name = splitFilename(spec)
+                # if the Name and Version match, a version was not provided and
+                # this is not a downgrade.
+                if split_pkg_name[0] != split_pkg_name[1]:
+                    pkg_name = split_pkg_name[0]
+                    installed_pkg = is_installed(module, repoq, pkg_name, conf_file, en_repos=en_repos, dis_repos=dis_repos, is_pkg=True)
+                    if installed_pkg:
+                        (cur_name, cur_ver, cur_rel, cur_epoch, cur_arch) = splitFilename(installed_pkg[0])
+                        (new_name, new_ver, new_rel, new_epoch, new_arch) = splitFilename(spec)
+
+                        compare = compareEVR((cur_epoch, cur_ver, cur_rel), (new_epoch, new_ver, new_rel))
+                        if compare > 0:
+                            downgrade = True
 
             # if not - then pass in the spec as what to install
             # we could get here if nothing provides it but that's not
@@ -652,7 +674,13 @@ def install(module, items, repoq, yum_basecmd, conf_file, en_repos, dis_repos):
         pkgs.append(pkg)
 
     if pkgs:
-        cmd = yum_basecmd + ['install'] + pkgs
+        # yum downgrading will not work on lists of packages. This is a necessary
+        # workaround for now since building the logic for this will take a larger
+        # refactoring effort.
+        if downgrade and len(pkgs) == 1:
+            cmd = yum_basecmd + ['downgrade'] + pkgs
+        else:
+            cmd = yum_basecmd + ['install'] + pkgs
 
         if module.check_mode:
             # Remove rpms downloaded for EL5 via url

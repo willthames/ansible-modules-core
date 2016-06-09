@@ -232,6 +232,7 @@ def main():
     src    = os.path.expanduser(module.params['src'])
     dest   = os.path.expanduser(module.params['dest'])
     backup = module.params['backup']
+    content = module.params['content']
     force  = module.params['force']
     original_basename = module.params.get('original_basename',None)
     validate = module.params.get('validate',None)
@@ -239,9 +240,9 @@ def main():
     mode   = module.params['mode']
     remote_src = module.params['remote_src']
 
-    if not os.path.exists(src):
+    if not content and not os.path.exists(src):
         module.fail_json(msg="Source %s not found" % (src))
-    if not os.access(src, os.R_OK):
+    if not content and not os.access(src, os.R_OK):
         module.fail_json(msg="Source %s not readable" % (src))
     if os.path.isdir(src):
         module.fail_json(msg="Remote copy does not support recursive copy of directory: %s" % (src))
@@ -261,15 +262,18 @@ def main():
         dest = os.path.join(dest, original_basename)
         dirname = os.path.dirname(dest)
         if not os.path.exists(dirname) and os.path.isabs(dirname):
-            (pre_existing_dir, new_directory_list) = split_pre_existing_dir(dirname)
-            os.makedirs(dirname)
-            directory_args = module.load_file_common_arguments(module.params)
-            directory_mode = module.params["directory_mode"]
-            if directory_mode is not None:
-                directory_args['mode'] = directory_mode
+            if module.check_mode:
+                changed = True
             else:
-                directory_args['mode'] = None
-            adjust_recursive_directory_permissions(pre_existing_dir, new_directory_list, module, directory_args, changed)
+                (pre_existing_dir, new_directory_list) = split_pre_existing_dir(dirname)
+                os.makedirs(dirname)
+                directory_args = module.load_file_common_arguments(module.params)
+                directory_mode = module.params["directory_mode"]
+                if directory_mode is not None:
+                    directory_args['mode'] = directory_mode
+                else:
+                    directory_args['mode'] = None
+                adjust_recursive_directory_permissions(pre_existing_dir, new_directory_list, module, directory_args, changed)
 
     if os.path.exists(dest):
         if os.path.islink(dest) and follow:
@@ -300,15 +304,26 @@ def main():
         module.fail_json(msg="Destination %s not writable" % (os.path.dirname(dest)))
 
     backup_file = None
+    diff = dict()
+    import epdb
+    epdb.st()
     if checksum_src != checksum_dest or os.path.islink(dest):
         try:
-            if backup:
+            if module._diff:
                 if os.path.exists(dest):
+                    diff['before_header'] = dest
+                    diff['before'] = open(dest).read()
+                    diff['before_binary'] = '\x00' in diff['before']
+            if backup:
+                if os.path.exists(dest) and not module.check_mode:
                     backup_file = module.backup_local(dest)
             # allow for conversion from symlink.
             if os.path.islink(dest):
-                os.unlink(dest)
-                open(dest, 'w').close()
+                if module.check_mode:
+                    changed = True
+                else:
+                    os.unlink(dest)
+                    open(dest, 'w').close()
             if validate:
                 # if we have a mode, make sure we set it on the temporary
                 # file source as some validations may require it
@@ -320,27 +335,37 @@ def main():
                 (rc,out,err) = module.run_command(validate % src)
                 if rc != 0:
                     module.fail_json(msg="failed to validate", exit_status=rc, stdout=out, stderr=err)
-            if remote_src:
-                _, tmpdest = tempfile.mkstemp(dir=os.path.dirname(dest))
-                shutil.copy2(src, tmpdest)
+            if module._diff:
+                diff['after_header'] = src
+                diff['after'] = content or open(src).read()
+                diff['after_binary'] = '\x00' in diff['after']
+            if module.check_mode:
+                if remote_src:
+                    _, tmpdest = tempfile.mkstemp(dir=os.path.dirname(dest))
+                    shutil.copy2(src, tmpdest)
+                elif content:
+                    _, tmpdest = tempfile.mkstemp(dir=os.path.dirname(dest))
+                    f = open(tmpdest, 'w')
+                    f.write(content)
+                    f.close()
+                else:
+                    tmpdest = src
                 module.atomic_move(tmpdest, dest)
-            else:
-                module.atomic_move(src, dest)
         except IOError:
             module.fail_json(msg="failed to copy: %s to %s" % (src, dest), traceback=traceback.format_exc())
         changed = True
     else:
         changed = False
 
-    res_args = dict(
-        dest = dest, src = src, md5sum = md5sum_src, checksum = checksum_src, changed = changed
-    )
+    res_args = dict(dest=dest, src=src, md5sum=md5sum_src, checksum=checksum_src, changed=changed, diff=diff)
     if backup_file:
         res_args['backup_file'] = backup_file
 
     module.params['dest'] = dest
     file_args = module.load_file_common_arguments(module.params)
-    res_args['changed'] = module.set_fs_attributes_if_different(file_args, res_args['changed'])
+    if content and 'src' in file_args:
+        del(file_args['src'])
+    res_args['changed'] = module.set_fs_attributes_if_different(file_args, res_args['changed'], diff)
 
     module.exit_json(**res_args)
 
